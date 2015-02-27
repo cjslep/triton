@@ -3,6 +3,7 @@ package triton
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"gopkg.in/fsnotify.v1"
 	"html/template"
 	"net/http"
@@ -31,11 +32,20 @@ func (s *Server) initializeContent() error {
 	if err = filepath.Walk(pwd, cw.Walk); err != nil {
 		return err
 	}
+	hiddenTmplFiles, okHidden := cw.HiddenFiles(".tmpl")
 	tmplFiles, ok := cw.Files(".tmpl")
 	if !ok {
-		return errors.New("No content walker .tmpl files")
+		return errors.New(fmt.Sprintf("No content walker .tmpl files"))
 	}
-	s.templates, err = template.ParseFiles(tmplFiles...)
+	if okHidden {
+		s.templates, err = template.ParseFiles(hiddenTmplFiles...)
+		if err != nil {
+			return err
+		}
+		s.templates, err = s.templates.ParseFiles(tmplFiles...)
+	} else {
+		s.templates, err = template.ParseFiles(tmplFiles...)
+	}
 	if err != nil {
 		return err
 	}
@@ -46,10 +56,16 @@ func (s *Server) initializeContent() error {
 		}
 		baseWithExt := filepath.Base(file)
 		base := baseWithExt
+		relNoExt := rel
 		if filepath.Ext(file) != "" {
 			base = baseWithExt[:strings.LastIndex(baseWithExt, ".")]
+			relNoExt = rel[:strings.LastIndex(rel, ".")]
+			if base == "#" {
+				base = "/" + relNoExt[:len(relNoExt)-1]
+				relNoExt = relNoExt[:len(relNoExt)-1]
+			}
 		}
-		s.staticTemplates[base] = "/" + rel
+		s.staticTemplates[base] = "/" + relNoExt
 	}
 	cssFiles, _ := cw.Files(".css")
 	for _, file := range cssFiles {
@@ -116,13 +132,15 @@ func (s *Server) async_fsnotifylistener() {
 		close(s.ErrChan)
 		return
 	}
-	var r RecursiveWatcher
+	tempR := RecursiveWatcher(make([]string, 0))
+	r := &tempR
 	w, err := r.RecursivelyWatch(pwd)
 	if err != nil {
 		s.ErrChan <- err
 		close(s.ErrChan)
 		return
 	}
+	defer w.Close()
 	for {
 		select {
 		case err = <-w.Errors:
@@ -138,6 +156,12 @@ func (s *Server) async_fsnotifylistener() {
 			case fsnotify.Remove:
 				s.initializeContent()
 				s.applyHandlers()
+				w, err = r.RecursivelyWatch(pwd)
+				if err != nil {
+					s.ErrChan <- err
+					close(s.ErrChan)
+					return
+				}
 			}
 		}
 	}
@@ -149,6 +173,7 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	s.applyHandlers()
+	go s.async_fsnotifylistener()
 	return s.WebHost.ListenAndServe()
 }
 
@@ -158,5 +183,6 @@ func (s *Server) ListenAndServeTLS(certFile string, keyFile string) error {
 		return err
 	}
 	s.applyHandlers()
+	go s.async_fsnotifylistener()
 	return s.WebHost.ListenAndServeTLS(certFile, keyFile)
 }
