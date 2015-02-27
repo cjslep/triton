@@ -12,14 +12,51 @@ import (
 	"strings"
 )
 
+// Server provides static web hosting and a very minimal Content-Management-System, if it
+// could even be called that. It searches the current working directory of execution recursively
+// for .tmpl files containing valid html/templates, .css files, and .js files. It watches the file
+// system for changes and updates the static site accordingly without restarting.
+//
+// Template files provide two different, but simple, behaviors depending whether they are located
+// in dot-directories.
+//
+// If a .tmpl file is within a dot directory, it is parsed and added to the master static Template
+// for use by other templates.
+//
+// If a .tmpl file is not within a dot directory, it is parsed and added to the master static
+// Template. Additionally, a URL entry to that file location and template filename (without the
+// extension) is created for web clients to visit. The template executed to create that particular
+// page will be the template filename (again, without extension). A quick example:
+//
+// If the Server was executed at <ROOT>, hosting at SITE.com, and a template file is located at
+// <ROOT>/foo/bar/baz.tmpl, then a web client can go to SITE.com/foo/bar/baz.tmpl and the server
+// will execute the template named "baz" and serve it.
+//
+// The special case is the file "#.tmpl", which will serve and match the directory it is contained
+// in. So if <ROOT> hosting SITE.com has <ROOT>/#.tmpl, then the client can go to SITE.com (the
+// home page!) and be served template "/".
+//
+// CSS and Javascript files behave as expected with the caveat that they must not be located in
+// any dot-directories.
 type Server struct {
-	WebHost         *http.Server
-	ErrChan         chan error
+	// WebHost is used to handle http requests. Do not call
+	// the WebHost's ListenAndServe nor ListenAndServeTLS functions. Call
+	// the triton Server's variants instead for proper setup to occur.
+	WebHost *http.Server
+	// ErrChan can be provided by the client, or is created after the
+	// server starts listening for requests. The client must listen to
+	// the channel for errors, and a closed channel indicates that the server is
+	// no longer properly updating its content and must be restarted.
+	ErrChan chan error
+	// Map between relative URL paths and template names to execute.
 	staticTemplates map[string]string
-	staticAssets    map[string][]byte
-	templates       *template.Template
+	// Cached static assets.
+	staticAssets map[string][]byte
+	// Cached static HTML content.
+	templates *template.Template
 }
 
+// initializeContent maps all content to URI locations.
 func (s *Server) initializeContent() error {
 	s.staticTemplates = make(map[string]string)
 	s.staticAssets = make(map[string][]byte)
@@ -84,6 +121,7 @@ func (s *Server) initializeContent() error {
 	return nil
 }
 
+// readStaticAssetsFile associates a specific asset file path to its content.
 func (s *Server) readStaticAssetsFile(baseDir string, assetFile string) error {
 	file, err := os.Open(assetFile)
 	if err != nil {
@@ -103,6 +141,8 @@ func (s *Server) readStaticAssetsFile(baseDir string, assetFile string) error {
 	return nil
 }
 
+// applyHandlers takes the URI mapped static content and creates web handlers to service
+// the content.
 func (s *Server) applyHandlers() {
 	basicMux := http.NewServeMux()
 	for path, content := range s.staticAssets {
@@ -122,6 +162,8 @@ func (s *Server) applyHandlers() {
 	s.WebHost.Handler = basicMux
 }
 
+// async_fsnotifylistener is a separate goroutine handling any changes to the filesystem,
+// updating the site without taking it down in the process.
 func (s *Server) async_fsnotifylistener() {
 	if s.ErrChan == nil {
 		s.ErrChan = make(chan error)
@@ -175,6 +217,8 @@ func (s *Server) async_fsnotifylistener() {
 	}
 }
 
+// ListenAndServe initializes the Server before using the WebHost to serve http
+// requests.
 func (s *Server) ListenAndServe() error {
 	err := s.initializeContent()
 	if err != nil {
@@ -185,6 +229,8 @@ func (s *Server) ListenAndServe() error {
 	return s.WebHost.ListenAndServe()
 }
 
+// ListenAndServeTLS initializes the Server before using the WebHost to serve
+// http over TLS.
 func (s *Server) ListenAndServeTLS(certFile string, keyFile string) error {
 	err := s.initializeContent()
 	if err != nil {

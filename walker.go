@@ -6,13 +6,18 @@ import (
 	"strings"
 )
 
-type ContentWalker struct {
+// ContentWalker aggregates a list of all files matching any arbitrary file
+// extensions. Files are marked hidden if they are within a directory that
+// begins with a "." (a dot-directory).
+type contentWalker struct {
 	files       map[string]*[]string
 	hiddenFiles map[string]*[]string
 }
 
-func NewContentWalker(fileExts ...string) *ContentWalker {
-	cw := &ContentWalker{
+// NewContentWalker creates a new valid ContentWalker that will index the
+// given file extensions.
+func NewContentWalker(fileExts ...string) *contentWalker {
+	cw := &contentWalker{
 		files:       make(map[string]*[]string),
 		hiddenFiles: make(map[string]*[]string),
 	}
@@ -25,7 +30,10 @@ func NewContentWalker(fileExts ...string) *ContentWalker {
 	return cw
 }
 
-func (c *ContentWalker) Walk(path string, into os.FileInfo, err error) error {
+// Walk implements the filepath.WalkFunc interface for use in a call by the client
+// to filepath.Walk. It will generate a list of all files for each extension type
+// given to it during construction.
+func (c *contentWalker) Walk(path string, into os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
@@ -43,7 +51,10 @@ func (c *ContentWalker) Walk(path string, into os.FileInfo, err error) error {
 	return nil
 }
 
-func (c *ContentWalker) Files(ext string) ([]string, bool) {
+// Files returns all files of the given extension that were not
+// in any dot-directories. It returns false if it did not index
+// the given extension.
+func (c *contentWalker) Files(ext string) ([]string, bool) {
 	pFiles, ok := c.files[ext]
 	if pFiles != nil {
 		return *pFiles, ok
@@ -52,7 +63,10 @@ func (c *ContentWalker) Files(ext string) ([]string, bool) {
 	}
 }
 
-func (c *ContentWalker) HiddenFiles(ext string) ([]string, bool) {
+// HiddenFiles returns all files of the given extension that were
+// in at least one dot-directory. It returns false if it did not
+// not index the given extension.
+func (c *contentWalker) HiddenFiles(ext string) ([]string, bool) {
 	pFiles, ok := c.hiddenFiles[ext]
 	if pFiles != nil {
 		return *pFiles, ok
