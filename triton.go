@@ -146,8 +146,10 @@ func (s *Server) async_fsnotifylistener() {
 		case err = <-w.Errors:
 			s.ErrChan <- err
 		case event := <-w.Events:
+			// The following could be quite smarter: for now,
+			// be dumb and rebuild the eentire tree.
 			switch event.Op {
-			case fsnotify.Write: // Only for files: reparse
+			case fsnotify.Write:
 				fallthrough
 			case fsnotify.Rename:
 				fallthrough
@@ -156,6 +158,12 @@ func (s *Server) async_fsnotifylistener() {
 			case fsnotify.Remove:
 				s.initializeContent()
 				s.applyHandlers()
+				err = w.Close()
+				if err != nil {
+					s.ErrChan <- err
+					close(s.ErrChan)
+					return
+				}
 				w, err = r.RecursivelyWatch(pwd)
 				if err != nil {
 					s.ErrChan <- err
