@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"gopkg.in/fsnotify.v1"
 	"html/template"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Server provides static web hosting and a very minimal Content-Management-System, if it
+// Server provides static cached web hosting and a very minimal Content-Management-System, if it
 // could even be called that. It searches the current working directory of execution recursively
-// for .tmpl files containing valid html/templates, .css files, and .js files. It watches the file
-// system for changes and updates the static site accordingly without restarting.
+// for .tmpl files containing valid html/templates. It also caches assets whose file extension matches
+// the extensions specified by the client using triton. It watches the file system for changes and
+// updates the static site accordingly without restarting.
 //
 // Template files provide two different, but simple, behaviors depending whether they are located
 // in dot-directories.
@@ -36,8 +38,8 @@ import (
 // in. So if <ROOT> hosting SITE.com has <ROOT>/#.tmpl, then the client can go to SITE.com (the
 // home page!) and be served template "/".
 //
-// CSS and Javascript files behave as expected with the caveat that they must not be located in
-// any dot-directories.
+// Static asset files behave as expected with the caveat that they must not be located in any
+// dot-directories.
 type Server struct {
 	// WebHost is used to handle http requests. Do not call
 	// the WebHost's ListenAndServe nor ListenAndServeTLS functions. Call
@@ -48,6 +50,10 @@ type Server struct {
 	// the channel for errors, and a closed channel indicates that the server is
 	// no longer properly updating its content and must be restarted.
 	ErrChan chan error
+	// AssetFileExtensions is a map of file extensions to treat as static
+	// assets when encountered in non-dot-directories. The values of the
+	// map are the MIME type. This can be nil.
+	AssetFileExtensionsToMIME map[string]string
 	// Map between relative URL paths and template names to execute.
 	staticTemplates map[string]string
 	// Cached static assets.
@@ -65,7 +71,17 @@ func (s *Server) initializeContent() error {
 	if err != nil {
 		return err
 	}
-	cw := NewContentWalker(".tmpl", ".css", ".js")
+	var cw *contentWalker
+	if s.AssetFileExtensionsToMIME == nil || len(s.AssetFileExtensionsToMIME) == 0 {
+		cw = NewContentWalker(".tmpl")
+	} else {
+		allFiles := make([]string, 0, len(s.AssetFileExtensionsToMIME)+1)
+		allFiles = append(allFiles, ".tmpl")
+		for k, _ := range s.AssetFileExtensionsToMIME {
+			allFiles = append(allFiles, k)
+		}
+		cw = NewContentWalker(allFiles...)
+	}
 	if err = filepath.Walk(pwd, cw.Walk); err != nil {
 		return err
 	}
@@ -104,18 +120,15 @@ func (s *Server) initializeContent() error {
 		}
 		s.staticTemplates[base] = "/" + relNoExt
 	}
-	cssFiles, _ := cw.Files(".css")
-	for _, file := range cssFiles {
-		err = s.readStaticAssetsFile(pwd, file)
-		if err != nil {
-			return err
-		}
-	}
-	jsFiles, _ := cw.Files(".js")
-	for _, file := range jsFiles {
-		err = s.readStaticAssetsFile(pwd, file)
-		if err != nil {
-			return err
+	if s.AssetFileExtensionsToMIME != nil && len(s.AssetFileExtensionsToMIME) > 0 {
+		for assetExt, _ := range s.AssetFileExtensionsToMIME {
+			assetFiles, _ := cw.Files(assetExt)
+			for _, file := range assetFiles {
+				err = s.readStaticAssetsFile(pwd, file)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -129,9 +142,17 @@ func (s *Server) readStaticAssetsFile(baseDir string, assetFile string) error {
 	}
 	defer file.Close()
 	var asset []byte
-	scan := bufio.NewScanner(file)
-	for scan.Scan() {
-		asset = append(asset, scan.Bytes()...)
+	buffer := make([]byte, 1024)
+	r := bufio.NewReader(file)
+	for {
+		n, err := r.Read(buffer)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+		asset = append(asset, buffer[0:n]...)
 	}
 	relPath, err := filepath.Rel(baseDir, assetFile)
 	if err != nil {
@@ -146,11 +167,21 @@ func (s *Server) readStaticAssetsFile(baseDir string, assetFile string) error {
 func (s *Server) applyHandlers() {
 	basicMux := http.NewServeMux()
 	for path, content := range s.staticAssets {
-		basicMux.HandleFunc(path, func(myContent []byte) func(http.ResponseWriter, *http.Request) {
+		extToMatch := filepath.Ext(path)
+		resultMime := ""
+		for ext, mimeType := range s.AssetFileExtensionsToMIME {
+			if ext == extToMatch {
+				resultMime = mimeType
+				break
+			}
+		}
+		basicMux.HandleFunc(path, func(myContent []byte, myMimeType string) func(http.ResponseWriter, *http.Request) {
 			return func(wr http.ResponseWriter, req *http.Request) {
+				// TODO: range-content
+				wr.Header().Add("Content-Type", myMimeType)
 				wr.Write(myContent)
 			}
-		}(content))
+		}(content, resultMime))
 	}
 	for tmplName, path := range s.staticTemplates {
 		basicMux.HandleFunc(path, func(myTmplName string, myTemplate *template.Template) func(http.ResponseWriter, *http.Request) {
