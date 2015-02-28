@@ -174,7 +174,7 @@ func (s *Server) async_fsnotifylistener() {
 		close(s.ErrChan)
 		return
 	}
-	tempR := RecursiveWatcher(make([]string, 0))
+	tempR := recursiveWatcher(make([]string, 0))
 	r := &tempR
 	w, err := r.RecursivelyWatch(pwd)
 	if err != nil {
