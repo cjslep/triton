@@ -74,7 +74,7 @@ func (s *Server) initializeContent() error {
 	if !ok {
 		return errors.New(fmt.Sprintf("No content walker .tmpl files"))
 	}
-	if okHidden {
+	if okHidden && len(hiddenTmplFiles) > 0 {
 		s.templates, err = template.ParseFiles(hiddenTmplFiles...)
 		if err != nil {
 			return err
