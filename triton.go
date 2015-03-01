@@ -13,11 +13,10 @@ import (
 	"strings"
 )
 
-// Server provides static cached web hosting and a very minimal Content-Management-System, if it
-// could even be called that. It searches the current working directory of execution recursively
-// for .tmpl files containing valid html/templates. It also caches assets whose file extension matches
-// the extensions specified by the client using triton. It watches the file system for changes and
-// updates the static site accordingly without restarting.
+// Server provides static cached web hosting. It searches the current working directory of
+// execution recursively for .tmpl files containing valid html/templates. It also caches assets
+// whose file extension matches the extensions specified by the client using triton. It watches
+// the file system for changes and updates the static site accordingly without restarting.
 //
 // Template files provide two different, but simple, behaviors depending whether they are located
 // in dot-directories.
@@ -44,6 +43,10 @@ type Server struct {
 	// WebHost is used to handle http requests. Do not call
 	// the WebHost's ListenAndServe nor ListenAndServeTLS functions. Call
 	// the triton Server's variants instead for proper setup to occur.
+	//
+	// If only http.Server had a function for setting its http.Handler in
+	// addition to its exported field, then an interface could be used here
+	// instead.
 	WebHost *http.Server
 	// ErrChan can be provided by the client, or is created after the
 	// server starts listening for requests. The client must listen to

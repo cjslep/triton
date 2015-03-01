@@ -16,7 +16,7 @@ type contentWalker struct {
 
 // NewContentWalker creates a new valid ContentWalker that will index the
 // given file extensions.
-func NewContentWalker(fileExts ...string) *contentWalker {
+func newContentWalker(fileExts ...string) *contentWalker {
 	cw := &contentWalker{
 		files:       make(map[string]*[]string),
 		hiddenFiles: make(map[string]*[]string),
