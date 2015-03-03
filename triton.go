@@ -13,6 +13,11 @@ import (
 	"strings"
 )
 
+const (
+	rootTemplateFile = "#"
+	templateFileExt  = ".tmpl"
+)
+
 // Server provides static cached web hosting. It searches the current working directory of
 // execution recursively for .tmpl files containing valid html/templates. It also caches assets
 // whose file extension matches the extensions specified by the client using triton. It watches
@@ -76,22 +81,22 @@ func (s *Server) initializeContent() error {
 	}
 	var cw *contentWalker
 	if s.AssetFileExtensionsToMIME == nil || len(s.AssetFileExtensionsToMIME) == 0 {
-		cw = NewContentWalker(".tmpl")
+		cw = newContentWalker(templateFileExt)
 	} else {
 		allFiles := make([]string, 0, len(s.AssetFileExtensionsToMIME)+1)
-		allFiles = append(allFiles, ".tmpl")
+		allFiles = append(allFiles, templateFileExt)
 		for k, _ := range s.AssetFileExtensionsToMIME {
 			allFiles = append(allFiles, k)
 		}
-		cw = NewContentWalker(allFiles...)
+		cw = newContentWalker(allFiles...)
 	}
 	if err = filepath.Walk(pwd, cw.Walk); err != nil {
 		return err
 	}
-	hiddenTmplFiles, okHidden := cw.HiddenFiles(".tmpl")
-	tmplFiles, ok := cw.Files(".tmpl")
+	hiddenTmplFiles, okHidden := cw.HiddenFiles(templateFileExt)
+	tmplFiles, ok := cw.Files(templateFileExt)
 	if !ok {
-		return errors.New(fmt.Sprintf("No content walker .tmpl files"))
+		return errors.New(fmt.Sprintf("No content walker %s files", templateFileExt))
 	}
 	if okHidden && len(hiddenTmplFiles) > 0 {
 		s.templates, err = template.ParseFiles(hiddenTmplFiles...)
@@ -110,18 +115,15 @@ func (s *Server) initializeContent() error {
 		if err != nil {
 			return err
 		}
-		baseWithExt := filepath.Base(file)
-		base := baseWithExt
 		relNoExt := rel
 		if filepath.Ext(file) != "" {
-			base = baseWithExt[:strings.LastIndex(baseWithExt, ".")]
 			relNoExt = rel[:strings.LastIndex(rel, ".")]
-			if base == "#" {
-				base = "/" + relNoExt[:len(relNoExt)-1]
+			baseWithExt := filepath.Base(file)
+			if baseWithExt[:strings.LastIndex(baseWithExt, ".")] == rootTemplateFile {
 				relNoExt = relNoExt[:len(relNoExt)-1]
 			}
 		}
-		s.staticTemplates[base] = "/" + relNoExt
+		s.staticTemplates["/"+relNoExt] = "/" + relNoExt
 	}
 	if s.AssetFileExtensionsToMIME != nil && len(s.AssetFileExtensionsToMIME) > 0 {
 		for assetExt, _ := range s.AssetFileExtensionsToMIME {
