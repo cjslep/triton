@@ -273,6 +273,13 @@ func (s *Server) ListenAndServeTLS(certFile string, keyFile string) error {
 		return err
 	}
 	s.applyHandlers()
+	// Apply redirect handler
+	redirectMux := http.NewServeMux()
+	redirectMux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "https://"+req.Host+req.RequestURI, http.StatusMovedPermanently)
+	})
+	httpRedirectServer := &http.Server{Handler: redirectMux}
 	go s.async_fsnotifylistener()
+	go httpRedirectServer.ListenAndServe()
 	return s.WebHost.ListenAndServeTLS(certFile, keyFile)
 }
