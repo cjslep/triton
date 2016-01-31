@@ -62,35 +62,46 @@ type Server struct {
 	// assets when encountered in non-dot-directories. The values of the
 	// map are the MIME type. This can be nil.
 	AssetFileExtensionsToMIME map[string]string
+	// RawDirectories are directories that are not cached in RAM.
+	// Everything in the directory is to be read and served in the request.
+	// Directories are matched by suffixes, as the primary use case is to
+	// enable serving git repositories over http(s) by setting this to be:
+	//         []string{".git"}
+	RawDirectories []string
 	// Map between relative URL paths and template names to execute.
 	staticTemplates map[string]string
 	// Cached static assets.
 	staticAssets map[string][]byte
 	// Cached static HTML content.
 	templates *template.Template
+	// Raw directories to serve
+	rawDirs []string
+	// Current working directory
+	pwd string
 }
 
 // initializeContent maps all content to URI locations.
 func (s *Server) initializeContent() error {
+	var err error = nil
 	s.staticTemplates = make(map[string]string)
 	s.staticAssets = make(map[string][]byte)
 	s.templates = nil
-	pwd, err := os.Getwd()
+	s.pwd, err = os.Getwd()
 	if err != nil {
 		return err
 	}
 	var cw *contentWalker
 	if s.AssetFileExtensionsToMIME == nil || len(s.AssetFileExtensionsToMIME) == 0 {
-		cw = newContentWalker(templateFileExt)
+		cw = newContentWalkerRawDirectories(s.RawDirectories, templateFileExt)
 	} else {
 		allFiles := make([]string, 0, len(s.AssetFileExtensionsToMIME)+1)
 		allFiles = append(allFiles, templateFileExt)
 		for k, _ := range s.AssetFileExtensionsToMIME {
 			allFiles = append(allFiles, k)
 		}
-		cw = newContentWalker(allFiles...)
+		cw = newContentWalkerRawDirectories(s.RawDirectories, allFiles...)
 	}
-	if err = filepath.Walk(pwd, cw.Walk); err != nil {
+	if err = filepath.Walk(s.pwd, cw.Walk); err != nil {
 		return err
 	}
 	hiddenTmplFiles, okHidden := cw.HiddenFiles(templateFileExt)
@@ -111,7 +122,7 @@ func (s *Server) initializeContent() error {
 		return err
 	}
 	for _, file := range tmplFiles {
-		rel, err := filepath.Rel(pwd, file)
+		rel, err := filepath.Rel(s.pwd, file)
 		if err != nil {
 			return err
 		}
@@ -129,10 +140,21 @@ func (s *Server) initializeContent() error {
 		for assetExt, _ := range s.AssetFileExtensionsToMIME {
 			assetFiles, _ := cw.Files(assetExt)
 			for _, file := range assetFiles {
-				err = s.readStaticAssetsFile(pwd, file)
+				err = s.readStaticAssetsFile(s.pwd, file)
 				if err != nil {
 					return err
 				}
+			}
+		}
+	}
+	for _, rawDirExt := range s.RawDirectories {
+		if dirs, ok := cw.RawDirectories(rawDirExt); ok {
+			for _, dir := range dirs {
+				rel, err := filepath.Rel(s.pwd, dir)
+				if err != nil {
+					return err
+				}
+				s.rawDirs = append(s.rawDirs, "/"+rel+"/")
 			}
 		}
 	}
@@ -195,6 +217,13 @@ func (s *Server) applyHandlers() {
 			}
 		}(tmplName, s.templates))
 	}
+	for _, rawDir := range s.rawDirs {
+		basicMux.HandleFunc(rawDir, func(rawDir string) func(http.ResponseWriter, *http.Request) {
+			return func(wr http.ResponseWriter, req *http.Request) {
+				http.ServeFile(wr, req, s.pwd+req.RequestURI)
+			}
+		}(rawDir))
+	}
 	s.WebHost.Handler = basicMux
 }
 
@@ -204,15 +233,7 @@ func (s *Server) async_fsnotifylistener() {
 	if s.ErrChan == nil {
 		s.ErrChan = make(chan error)
 	}
-	pwd, err := os.Getwd()
-	if err != nil {
-		s.ErrChan <- err
-		close(s.ErrChan)
-		return
-	}
-	tempR := recursiveWatcher(make([]string, 0))
-	r := &tempR
-	w, err := r.RecursivelyWatch(pwd)
+	w, err := RecursivelyWatch(s.pwd, s.RawDirectories)
 	if err != nil {
 		s.ErrChan <- err
 		close(s.ErrChan)
@@ -242,7 +263,7 @@ func (s *Server) async_fsnotifylistener() {
 					close(s.ErrChan)
 					return
 				}
-				w, err = r.RecursivelyWatch(pwd)
+				w, err = RecursivelyWatch(s.pwd, s.RawDirectories)
 				if err != nil {
 					s.ErrChan <- err
 					close(s.ErrChan)

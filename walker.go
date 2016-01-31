@@ -10,14 +10,16 @@ import (
 // extensions. Files are marked hidden if they are within a directory that
 // begins with a "." (a dot-directory).
 type contentWalker struct {
+	rawDirs     map[string]*[]string
 	files       map[string]*[]string
 	hiddenFiles map[string]*[]string
 }
 
-// NewContentWalker creates a new valid ContentWalker that will index the
-// given file extensions.
-func newContentWalker(fileExts ...string) *contentWalker {
+// NewContentWalkerRawDirectories creates a new ContentWalker that will index
+// the given file extensions and raw directories.
+func newContentWalkerRawDirectories(rawDirs []string, fileExts ...string) *contentWalker {
 	cw := &contentWalker{
+		rawDirs:     make(map[string]*[]string),
 		files:       make(map[string]*[]string),
 		hiddenFiles: make(map[string]*[]string),
 	}
@@ -27,7 +29,15 @@ func newContentWalker(fileExts ...string) *contentWalker {
 		arrHidden := make([]string, 0)
 		cw.hiddenFiles[f] = &arrHidden
 	}
+	for _, r := range rawDirs {
+		arr := make([]string, 0)
+		cw.rawDirs[r] = &arr
+	}
 	return cw
+}
+
+func newContentWalker(fileExts ...string) *contentWalker {
+	return newContentWalkerRawDirectories(nil, fileExts...)
 }
 
 // Walk implements the filepath.WalkFunc interface for use in a call by the client
@@ -36,6 +46,8 @@ func newContentWalker(fileExts ...string) *contentWalker {
 func (c *contentWalker) Walk(path string, into os.FileInfo, err error) error {
 	if err != nil {
 		return err
+	} else if c.handleRawDirectory(path) {
+		return nil
 	}
 	ext := filepath.Ext(path)
 	toSearch := c.files
@@ -65,7 +77,7 @@ func (c *contentWalker) Files(ext string) ([]string, bool) {
 
 // HiddenFiles returns all files of the given extension that were
 // in at least one dot-directory. It returns false if it did not
-// not index the given extension.
+// index the given extension.
 func (c *contentWalker) HiddenFiles(ext string) ([]string, bool) {
 	pFiles, ok := c.hiddenFiles[ext]
 	if pFiles != nil {
@@ -73,4 +85,35 @@ func (c *contentWalker) HiddenFiles(ext string) ([]string, bool) {
 	} else {
 		return nil, ok
 	}
+}
+
+func (c *contentWalker) RawDirectories(ext string) ([]string, bool) {
+	pFiles, ok := c.rawDirs[ext]
+	if pFiles != nil {
+		return *pFiles, ok
+	} else {
+		return nil, ok
+	}
+}
+
+// Returns true if the path contains a raw directory
+func (c *contentWalker) handleRawDirectory(path string) bool {
+	dirPath := filepath.Dir(path)
+	for dirExt, found := range c.rawDirs {
+		if strings.Contains(dirPath, dirExt) {
+			dirPath = dirPath[:strings.Index(dirPath, dirExt)+len(dirExt)]
+			// Only add once
+			alreadyHave := false
+			for _, elem := range *found {
+				if elem == dirPath {
+					alreadyHave = true
+				}
+			}
+			if !alreadyHave {
+				*found = append(*found, dirPath)
+			}
+			return true
+		}
+	}
+	return false
 }
