@@ -5,15 +5,23 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
+	"strings"
 )
 
 const (
-	gitServiceQuery      = "service"
-	gitUploadPack        = "git-upload-pack"
-	gitUploadPackResult  = "application/x-git-upload-pack-result"
-	gitCommand           = "git"
-	gitUploadPackCommand = "upload-pack"
-	gitStatelessOption   = "--stateless-rpc"
+	gitPathInfoRefs = "/info/refs"
+
+	gitServiceQuery               = "service"
+	gitUploadPack                 = "git-upload-pack"
+	gitUploadPackResult           = "application/x-git-upload-pack-result"
+	gitUploadPackAdvertisement    = "application/x-git-upload-pack-advertisement"
+	gitCommand                    = "git"
+	gitUploadPackCommand          = "upload-pack"
+	gitStatelessOption            = "--stateless-rpc"
+	gitAdvertiseOption            = "--advertise-refs"
+	gitServiceAdvertisementHeader = "# service="
+	gitPacketFlush                = "0000"
 
 	httpHeaderContentType     = "Content-Type"
 	httpHeaderContentEncoding = "Content-Encoding"
@@ -23,12 +31,27 @@ const (
 
 func serveGitRequest(wr http.ResponseWriter, req *http.Request, path string) {
 	// TODO: Metrics
-	fmt.Println("serveGitRequest")
+	fmt.Println("serveGitRequest", req.RequestURI)
 	serviceType := req.URL.Query().Get(gitServiceQuery)
 	if gitUploadPack == serviceType {
 		gitUploadPackHandler(wr, req, path)
 	} else {
 		wr.WriteHeader(http.StatusBadRequest)
+	}
+}
+
+func serveInfoRefs(wr http.ResponseWriter, req *http.Request, path string) {
+	fmt.Println("serveInfoRefs")
+	packCmd := exec.Command(gitCommand, gitUploadPackCommand, gitStatelessOption, gitAdvertiseOption, path)
+	packCmd.Dir = path
+	if refs, err := packCmd.Output(); err != nil {
+		// TODO
+		fmt.Println("packCmd", err)
+	} else {
+		wr.Header().Set(httpHeaderContentType, gitUploadPackAdvertisement)
+		wr.Write(gitPacketString(gitServiceAdvertisementHeader + gitUploadPackCommand + "\n"))
+		wr.Write([]byte(gitPacketFlush))
+		wr.Write(refs)
 	}
 }
 
@@ -52,4 +75,12 @@ func gitUploadPackHandler(wr http.ResponseWriter, req *http.Request, path string
 		// TODO
 		fmt.Println("packCmd", err)
 	}
+}
+
+func gitPacketString(str string) []byte {
+	strLen := int64(len(str)) + 4
+	octalLen := strconv.FormatInt(strLen, 16)
+	padding := 4 - len(octalLen)%4
+	octalLen = strings.Repeat("0", padding) + octalLen
+	return []byte(octalLen + str)
 }

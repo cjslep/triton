@@ -146,8 +146,8 @@ func (s *Server) initializeContent() error {
 			}
 		}
 	}
-	for _, rawDirExt := range s.GitDirectories {
-		if dirs, ok := cw.GitDirectories(rawDirExt); ok {
+	for _, gitDirExt := range s.GitDirectories {
+		if dirs, ok := cw.GitDirectories(gitDirExt); ok {
 			for _, dir := range dirs {
 				rel, err := filepath.Rel(s.pwd, dir)
 				if err != nil {
@@ -220,6 +220,11 @@ func (s *Server) applyHandlers() {
 		basicMux.HandleFunc(gitDir, func(gitDir string) func(http.ResponseWriter, *http.Request) {
 			return func(wr http.ResponseWriter, req *http.Request) {
 				serveGitRequest(wr, req, s.pwd+req.URL.Path)
+			}
+		}(gitDir))
+		basicMux.HandleFunc(gitDir+gitPathInfoRefs, func(gitDir string) func(http.ResponseWriter, *http.Request) {
+			return func(wr http.ResponseWriter, req *http.Request) {
+				serveInfoRefs(wr, req, gitDir)
 			}
 		}(gitDir))
 	}
