@@ -40,15 +40,15 @@ const (
 	noCacheControl = "no-cache, max-age=0, must-revalidate"
 )
 
-func addGitHandlers(mux *http.ServeMux, gitDir string) {
+func addGitHandlers(mux *http.ServeMux, gitDir string, fullPathGitDir string) {
 	mux.HandleFunc(gitDir, func(wr http.ResponseWriter, req *http.Request) {
-		serveGitRequest(wr, req, gitDir)
+		serveGitRequest(wr, req, fullPathGitDir)
 	})
 	mux.HandleFunc(gitDir+gitPathInfoRefs, func(wr http.ResponseWriter, req *http.Request) {
-		serveInfoRefs(wr, req, gitDir)
+		serveInfoRefs(wr, req, fullPathGitDir)
 	})
 	mux.HandleFunc(gitDir+gitPathHead, func(wr http.ResponseWriter, req *http.Request) {
-		serveTextFileNoCaching(wr, req, gitDir+gitPathHead)
+		serveTextFileNoCaching(wr, req, fullPathGitDir+gitPathHead)
 	})
 }
 
@@ -113,6 +113,7 @@ func serveFile(contentType string, wr http.ResponseWriter, req *http.Request, fi
 	if os.IsNotExist(err) {
 		// TODO
 		fmt.Println("serveFile", err)
+		return
 	} else if err != nil {
 		// TODO
 		fmt.Println("serveFile", err)

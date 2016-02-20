@@ -217,7 +217,7 @@ func (s *Server) applyHandlers() {
 		}(tmplName, s.templates))
 	}
 	for _, gitDir := range s.gitDirs {
-		addGitHandlers(basicMux, gitDir)
+		addGitHandlers(basicMux, gitDir, s.pwd+gitDir)
 	}
 	s.WebHost.Handler = basicMux
 }
