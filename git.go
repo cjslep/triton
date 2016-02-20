@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 const (
 	gitPathInfoRefs = "info/refs"
+	gitPathHead     = "HEAD"
 
 	gitServiceQuery               = "service"
 	gitUploadPack                 = "git-upload-pack"
@@ -28,19 +30,34 @@ const (
 	httpHeaderExpires         = "Expires"
 	httpHeaderPragma          = "Pragma"
 	httpHeaderCacheControl    = "Cache-Control"
+	httpHeaderContentLength   = "Content-Length"
+	httpHeaderLastModified    = "Last-Modified"
 
 	gzipEncoding   = "gzip"
+	plainText      = "text/plain"
 	neverExpire    = "Fri, 01 Jan 1980 00:00:00 GMT"
 	noCachePragma  = "no-cache"
 	noCacheControl = "no-cache, max-age=0, must-revalidate"
 )
+
+func addGitHandlers(mux *http.ServeMux, gitDir string) {
+	mux.HandleFunc(gitDir, func(wr http.ResponseWriter, req *http.Request) {
+		serveGitRequest(wr, req, gitDir)
+	})
+	mux.HandleFunc(gitDir+gitPathInfoRefs, func(wr http.ResponseWriter, req *http.Request) {
+		serveInfoRefs(wr, req, gitDir)
+	})
+	mux.HandleFunc(gitDir+gitPathHead, func(wr http.ResponseWriter, req *http.Request) {
+		serveTextFileNoCaching(wr, req, gitDir+gitPathHead)
+	})
+}
 
 func serveGitRequest(wr http.ResponseWriter, req *http.Request, path string) {
 	// TODO: Metrics
 	fmt.Println("serveGitRequest", req.RequestURI)
 	serviceType := req.URL.Query().Get(gitServiceQuery)
 	if gitUploadPack == serviceType {
-		gitUploadPackHandler(wr, req, path)
+		serveUploadPack(wr, req, path)
 	} else {
 		wr.WriteHeader(http.StatusBadRequest)
 	}
@@ -63,7 +80,7 @@ func serveInfoRefs(wr http.ResponseWriter, req *http.Request, path string) {
 	}
 }
 
-func gitUploadPackHandler(wr http.ResponseWriter, req *http.Request, path string) {
+func serveUploadPack(wr http.ResponseWriter, req *http.Request, path string) {
 	body := req.Body
 	if gzipEncoding == req.Header.Get(httpHeaderContentEncoding) {
 		if gzipBody, err := gzip.NewReader(body); err != nil {
@@ -83,6 +100,28 @@ func gitUploadPackHandler(wr http.ResponseWriter, req *http.Request, path string
 		// TODO
 		fmt.Println("packCmd", err)
 	}
+}
+
+func serveTextFileNoCaching(wr http.ResponseWriter, req *http.Request, file string) {
+	fmt.Println("serveTextFileNoCaching", file)
+	noCaching(wr)
+	serveFile(plainText, wr, req, file)
+}
+
+func serveFile(contentType string, wr http.ResponseWriter, req *http.Request, file string) {
+	fileStats, err := os.Stat(file)
+	if os.IsNotExist(err) {
+		// TODO
+		fmt.Println("serveFile", err)
+	} else if err != nil {
+		// TODO
+		fmt.Println("serveFile", err)
+		return
+	}
+	wr.Header().Set(httpHeaderContentType, contentType)
+	wr.Header().Set(httpHeaderContentLength, strconv.Itoa(int(fileStats.Size())))
+	wr.Header().Set(httpHeaderLastModified, fileStats.ModTime().Format(http.TimeFormat))
+	http.ServeFile(wr, req, file)
 }
 
 func gitPacketString(str string) []byte {

@@ -217,16 +217,7 @@ func (s *Server) applyHandlers() {
 		}(tmplName, s.templates))
 	}
 	for _, gitDir := range s.gitDirs {
-		basicMux.HandleFunc(gitDir, func(gitDir string) func(http.ResponseWriter, *http.Request) {
-			return func(wr http.ResponseWriter, req *http.Request) {
-				serveGitRequest(wr, req, s.pwd+req.URL.Path)
-			}
-		}(gitDir))
-		basicMux.HandleFunc(gitDir+gitPathInfoRefs, func(gitDir string) func(http.ResponseWriter, *http.Request) {
-			return func(wr http.ResponseWriter, req *http.Request) {
-				serveInfoRefs(wr, req, gitDir)
-			}
-		}(gitDir))
+		addGitHandlers(basicMux, gitDir)
 	}
 	s.WebHost.Handler = basicMux
 }
