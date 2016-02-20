@@ -45,7 +45,7 @@ func addGitHandlers(mux *http.ServeMux, gitDir string, fullPathGitDir string) {
 		serveGitRequest(wr, req, fullPathGitDir)
 	})
 	mux.HandleFunc(gitDir+gitPathInfoRefs, func(wr http.ResponseWriter, req *http.Request) {
-		serveInfoRefs(wr, req, fullPathGitDir)
+		serveInfoRefs(wr, req, gitDir)
 	})
 	mux.HandleFunc(gitDir+gitPathHead, func(wr http.ResponseWriter, req *http.Request) {
 		serveTextFileNoCaching(wr, req, fullPathGitDir+gitPathHead)
@@ -54,7 +54,7 @@ func addGitHandlers(mux *http.ServeMux, gitDir string, fullPathGitDir string) {
 
 func serveGitRequest(wr http.ResponseWriter, req *http.Request, path string) {
 	// TODO: Metrics
-	fmt.Println("serveGitRequest", req.RequestURI)
+	fmt.Println("serveGitRequest", req.RequestURI, path)
 	serviceType := req.URL.Query().Get(gitServiceQuery)
 	if gitUploadPack == serviceType {
 		serveUploadPack(wr, req, path)
@@ -64,7 +64,7 @@ func serveGitRequest(wr http.ResponseWriter, req *http.Request, path string) {
 }
 
 func serveInfoRefs(wr http.ResponseWriter, req *http.Request, path string) {
-	fmt.Println("serveInfoRefs")
+	fmt.Println("serveInfoRefs", path)
 	packCmd := exec.Command(gitCommand, gitUploadPackCommand, gitStatelessOption, gitAdvertiseOption, path)
 	packCmd.Dir = path
 	if refs, err := packCmd.Output(); err != nil {
