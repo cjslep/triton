@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	gitPathInfoRefs = "/info/refs"
+	gitPathInfoRefs = "info/refs"
 
 	gitServiceQuery               = "service"
 	gitUploadPack                 = "git-upload-pack"
@@ -25,8 +25,14 @@ const (
 
 	httpHeaderContentType     = "Content-Type"
 	httpHeaderContentEncoding = "Content-Encoding"
+	httpHeaderExpires         = "Expires"
+	httpHeaderPragma          = "Pragma"
+	httpHeaderCacheControl    = "Cache-Control"
 
-	gzipEncoding = "gzip"
+	gzipEncoding   = "gzip"
+	neverExpire    = "Fri, 01 Jan 1980 00:00:00 GMT"
+	noCachePragma  = "no-cache"
+	noCacheControl = "no-cache, max-age=0, must-revalidate"
 )
 
 func serveGitRequest(wr http.ResponseWriter, req *http.Request, path string) {
@@ -48,7 +54,9 @@ func serveInfoRefs(wr http.ResponseWriter, req *http.Request, path string) {
 		// TODO
 		fmt.Println("packCmd", err)
 	} else {
+		noCaching(wr)
 		wr.Header().Set(httpHeaderContentType, gitUploadPackAdvertisement)
+		wr.WriteHeader(http.StatusOK)
 		wr.Write(gitPacketString(gitServiceAdvertisementHeader + gitUploadPackCommand + "\n"))
 		wr.Write([]byte(gitPacketFlush))
 		wr.Write(refs)
@@ -83,4 +91,10 @@ func gitPacketString(str string) []byte {
 	padding := 4 - len(octalLen)%4
 	octalLen = strings.Repeat("0", padding) + octalLen
 	return []byte(octalLen + str)
+}
+
+func noCaching(wr http.ResponseWriter) {
+	wr.Header().Set(httpHeaderExpires, neverExpire)
+	wr.Header().Set(httpHeaderPragma, noCachePragma)
+	wr.Header().Set(httpHeaderCacheControl, noCacheControl)
 }
