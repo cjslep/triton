@@ -62,20 +62,19 @@ type Server struct {
 	// assets when encountered in non-dot-directories. The values of the
 	// map are the MIME type. This can be nil.
 	AssetFileExtensionsToMIME map[string]string
-	// RawDirectories are directories that are not cached in RAM.
-	// Everything in the directory is to be read and served in the request.
-	// Directories are matched by suffixes, as the primary use case is to
-	// enable serving git repositories over http(s) by setting this to be:
+	// GitDirectories are directories that are not cached in RAM. The
+	// directory is to be read and served as a publicly accessible
+	// repository. This should generally be set as:
 	//         []string{".git"}
-	RawDirectories []string
+	GitDirectories []string
 	// Map between relative URL paths and template names to execute.
 	staticTemplates map[string]string
 	// Cached static assets.
 	staticAssets map[string][]byte
 	// Cached static HTML content.
 	templates *template.Template
-	// Raw directories to serve
-	rawDirs []string
+	// Path to git repositories to serve
+	gitDirs []string
 	// Current working directory
 	pwd string
 }
@@ -92,14 +91,14 @@ func (s *Server) initializeContent() error {
 	}
 	var cw *contentWalker
 	if s.AssetFileExtensionsToMIME == nil || len(s.AssetFileExtensionsToMIME) == 0 {
-		cw = newContentWalkerRawDirectories(s.RawDirectories, templateFileExt)
+		cw = newContentWalkerGitDirectories(s.GitDirectories, templateFileExt)
 	} else {
 		allFiles := make([]string, 0, len(s.AssetFileExtensionsToMIME)+1)
 		allFiles = append(allFiles, templateFileExt)
 		for k, _ := range s.AssetFileExtensionsToMIME {
 			allFiles = append(allFiles, k)
 		}
-		cw = newContentWalkerRawDirectories(s.RawDirectories, allFiles...)
+		cw = newContentWalkerGitDirectories(s.GitDirectories, allFiles...)
 	}
 	if err = filepath.Walk(s.pwd, cw.Walk); err != nil {
 		return err
@@ -147,14 +146,14 @@ func (s *Server) initializeContent() error {
 			}
 		}
 	}
-	for _, rawDirExt := range s.RawDirectories {
-		if dirs, ok := cw.RawDirectories(rawDirExt); ok {
+	for _, rawDirExt := range s.GitDirectories {
+		if dirs, ok := cw.GitDirectories(rawDirExt); ok {
 			for _, dir := range dirs {
 				rel, err := filepath.Rel(s.pwd, dir)
 				if err != nil {
 					return err
 				}
-				s.rawDirs = append(s.rawDirs, "/"+rel+"/")
+				s.gitDirs = append(s.gitDirs, "/"+rel+"/")
 			}
 		}
 	}
@@ -217,12 +216,12 @@ func (s *Server) applyHandlers() {
 			}
 		}(tmplName, s.templates))
 	}
-	for _, rawDir := range s.rawDirs {
-		basicMux.HandleFunc(rawDir, func(rawDir string) func(http.ResponseWriter, *http.Request) {
+	for _, gitDir := range s.gitDirs {
+		basicMux.HandleFunc(gitDir, func(gitDir string) func(http.ResponseWriter, *http.Request) {
 			return func(wr http.ResponseWriter, req *http.Request) {
-				http.ServeFile(wr, req, s.pwd+req.RequestURI)
+				serveGitRequest(wr, req, s.pwd+req.RequestURI)
 			}
-		}(rawDir))
+		}(gitDir))
 	}
 	s.WebHost.Handler = basicMux
 }
@@ -233,7 +232,7 @@ func (s *Server) async_fsnotifylistener() {
 	if s.ErrChan == nil {
 		s.ErrChan = make(chan error)
 	}
-	w, err := RecursivelyWatch(s.pwd, s.RawDirectories)
+	w, err := RecursivelyWatch(s.pwd, s.GitDirectories)
 	if err != nil {
 		s.ErrChan <- err
 		close(s.ErrChan)
@@ -263,7 +262,7 @@ func (s *Server) async_fsnotifylistener() {
 					close(s.ErrChan)
 					return
 				}
-				w, err = RecursivelyWatch(s.pwd, s.RawDirectories)
+				w, err = RecursivelyWatch(s.pwd, s.GitDirectories)
 				if err != nil {
 					s.ErrChan <- err
 					close(s.ErrChan)

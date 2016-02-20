@@ -10,16 +10,16 @@ import (
 // extensions. Files are marked hidden if they are within a directory that
 // begins with a "." (a dot-directory).
 type contentWalker struct {
-	rawDirs     map[string]*[]string
+	gitDirs     map[string]*[]string
 	files       map[string]*[]string
 	hiddenFiles map[string]*[]string
 }
 
-// NewContentWalkerRawDirectories creates a new ContentWalker that will index
-// the given file extensions and raw directories.
-func newContentWalkerRawDirectories(rawDirs []string, fileExts ...string) *contentWalker {
+// NewContentWalkerGitDirectories creates a new ContentWalker that will index
+// the given file extensions and git directories.
+func newContentWalkerGitDirectories(gitDirs []string, fileExts ...string) *contentWalker {
 	cw := &contentWalker{
-		rawDirs:     make(map[string]*[]string),
+		gitDirs:     make(map[string]*[]string),
 		files:       make(map[string]*[]string),
 		hiddenFiles: make(map[string]*[]string),
 	}
@@ -29,15 +29,15 @@ func newContentWalkerRawDirectories(rawDirs []string, fileExts ...string) *conte
 		arrHidden := make([]string, 0)
 		cw.hiddenFiles[f] = &arrHidden
 	}
-	for _, r := range rawDirs {
+	for _, r := range gitDirs {
 		arr := make([]string, 0)
-		cw.rawDirs[r] = &arr
+		cw.gitDirs[r] = &arr
 	}
 	return cw
 }
 
 func newContentWalker(fileExts ...string) *contentWalker {
-	return newContentWalkerRawDirectories(nil, fileExts...)
+	return newContentWalkerGitDirectories(nil, fileExts...)
 }
 
 // Walk implements the filepath.WalkFunc interface for use in a call by the client
@@ -46,7 +46,7 @@ func newContentWalker(fileExts ...string) *contentWalker {
 func (c *contentWalker) Walk(path string, into os.FileInfo, err error) error {
 	if err != nil {
 		return err
-	} else if c.handleRawDirectory(path) {
+	} else if c.handleGitDirectory(path) {
 		return nil
 	}
 	ext := filepath.Ext(path)
@@ -87,8 +87,8 @@ func (c *contentWalker) HiddenFiles(ext string) ([]string, bool) {
 	}
 }
 
-func (c *contentWalker) RawDirectories(ext string) ([]string, bool) {
-	pFiles, ok := c.rawDirs[ext]
+func (c *contentWalker) GitDirectories(ext string) ([]string, bool) {
+	pFiles, ok := c.gitDirs[ext]
 	if pFiles != nil {
 		return *pFiles, ok
 	} else {
@@ -96,10 +96,10 @@ func (c *contentWalker) RawDirectories(ext string) ([]string, bool) {
 	}
 }
 
-// Returns true if the path contains a raw directory
-func (c *contentWalker) handleRawDirectory(path string) bool {
+// Returns true if the path contains a git directory
+func (c *contentWalker) handleGitDirectory(path string) bool {
 	dirPath := filepath.Dir(path)
-	for dirExt, found := range c.rawDirs {
+	for dirExt, found := range c.gitDirs {
 		if strings.Contains(dirPath, dirExt) {
 			dirPath = dirPath[:strings.Index(dirPath, dirExt)+len(dirExt)]
 			// Only add once
